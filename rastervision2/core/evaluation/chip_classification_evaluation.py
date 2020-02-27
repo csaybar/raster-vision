@@ -38,13 +38,14 @@ class ChipClassificationEvaluation(ClassificationEvaluation):
             gt_class_ids, pred_class_ids, labels=sklabels, warn_for=())
 
         for class_id, class_name in enumerate(class_config.names):
-            eval_item = ClassEvaluationItem(
-                float(precision[class_id]),
-                float(recall[class_id]),
-                float(f1[class_id]),
-                gt_count=float(support[class_id]),
-                class_id=class_id,
-                class_name=class_name)
-            class_to_eval_item[class_id] = eval_item
+            if class_id != class_config.get_null_class_id():
+                eval_item = ClassEvaluationItem(
+                    float(precision[class_id]),
+                    float(recall[class_id]),
+                    float(f1[class_id]),
+                    gt_count=float(support[class_id]),
+                    class_id=class_id,
+                    class_name=class_name)
+                class_to_eval_item[class_id] = eval_item
 
         return class_to_eval_item

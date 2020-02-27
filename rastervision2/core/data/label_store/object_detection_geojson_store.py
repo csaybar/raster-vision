@@ -6,7 +6,7 @@ from rastervision2.pipeline.filesystem import json_to_file
 
 
 class ObjectDetectionGeoJSONStore(LabelStore):
-    def __init__(self, uri, crs_transformer):
+    def __init__(self, uri, crs_transformer, class_config):
         """Construct LabelStore backed by a GeoJSON file for object detection labels.
 
         Args:
@@ -18,6 +18,7 @@ class ObjectDetectionGeoJSONStore(LabelStore):
         """
         self.uri = uri
         self.crs_transformer = crs_transformer
+        self.class_config = class_config
 
     def save(self, labels):
         """Save labels to URI."""
@@ -28,7 +29,7 @@ class ObjectDetectionGeoJSONStore(LabelStore):
             boxes,
             class_ids,
             self.crs_transformer,
-            self.class_map,
+            self.class_config,
             scores=scores)
         json_to_file(geojson, self.uri)
 

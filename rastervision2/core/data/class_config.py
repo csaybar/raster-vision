@@ -13,6 +13,9 @@ class ClassConfig(Config):
     def get_class_id(self, name):
         return self.names.index(name)
 
+    def get_name(self, id):
+        return self.names[id]
+
     def get_null_class_id(self):
         return self.get_class_id(self.null_class)
 

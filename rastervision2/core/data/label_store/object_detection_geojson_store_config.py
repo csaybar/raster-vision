@@ -11,7 +11,8 @@ class ObjectDetectionGeoJSONStoreConfig(LabelStoreConfig):
     uri: Optional[str] = None
 
     def build(self, class_config, crs_transformer, extent=None, tmp_dir=None):
-        return ObjectDetectionGeoJSONStore(self.uri, crs_transformer)
+        return ObjectDetectionGeoJSONStore(
+            self.uri, class_config, crs_transformer)
 
     def update(self, pipeline=None, scene=None):
         if pipeline is not None and scene is not None:
