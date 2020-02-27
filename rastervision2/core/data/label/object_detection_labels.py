@@ -22,7 +22,7 @@ class ObjectDetectionLabels(Labels):
             npboxes: float numpy array of size nx4 with cols
                 ymin, xmin, ymax, xmax. Should be in pixel coordinates within
                 the global frame of reference.
-            class_ids: int numpy array of size n with class ids starting at 1
+            class_ids: int numpy array of size n with class ids
             scores: float numpy array of size n
         """
         self.boxlist = BoxList(npboxes)

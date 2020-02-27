@@ -1,6 +1,3 @@
-from typing import Optional
-from os.path import join
-
 from rastervision2.pipeline.config import register_config
 from rastervision2.core.evaluation.classification_evaluator_config import (
     ClassificationEvaluatorConfig)
