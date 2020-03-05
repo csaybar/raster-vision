@@ -1,6 +1,7 @@
 import warnings
 warnings.filterwarnings('ignore')  # noqa
 from os.path import join, isdir, basename
+from collections import defaultdict
 import logging
 import glob
 
@@ -17,46 +18,74 @@ from rastervision2.pytorch_learner.learner import Learner
 from rastervision2.pytorch_learner.utils import (compute_conf_mat_metrics,
                                                  compute_conf_mat)
 from rastervision2.core.data.utils import color_to_triple
+from rastervision.backend.torch_utils.object_detection.model import (
+    MyFasterRCNN)
 
 log = logging.getLogger(__name__)
 
 
-class ObjectDetectionDataset(Dataset):
-    def __init__(self, data_dir, transform=None):
-        self.data_dir = data_dir
-        self.img_paths = glob.glob(join(data_dir, 'img', '*.png'))
-        self.transform = transform
+def collate_fn(data):
+    x = [d[0].unsqueeze(0) for d in data]
+    y = [d[1] for d in data]
+    return (torch.cat(x), y)
+
+
+class CocoDataset(Dataset):
+    def __init__(self, img_dir, annotation_uris, transforms=None):
+        self.img_dir = img_dir
+        self.annotation_uris = annotation_uris
+        self.transforms = transforms
+
+        self.imgs = []
+        self.img2id = {}
+        self.id2img = {}
+        self.id2boxes = defaultdict(lambda: [])
+        self.id2labels = defaultdict(lambda: [])
+        self.label2name = {}
+        for annotation_uri in annotation_uris:
+            ann_json = file_to_json(annotation_uri)
+            for img in ann_json['images']:
+                self.imgs.append(img['file_name'])
+                self.img2id[img['file_name']] = img['id']
+                self.id2img[img['id']] = img['file_name']
+            for ann in ann_json['annotations']:
+                img_id = ann['image_id']
+                box = ann['bbox']
+                label = ann['category_id']
+                box = torch.tensor(
+                    [[box[1], box[0], box[1] + box[3], box[0] + box[2]]])
+                self.id2boxes[img_id].append(box)
+                self.id2labels[img_id].append(label)
+        self.id2boxes = dict([(id, torch.cat(boxes).float())
+                              for id, boxes in self.id2boxes.items()])
+        self.id2labels = dict([(id, torch.tensor(labels))
+                               for id, labels in self.id2labels.items()])
 
     def __getitem__(self, ind):
-        img_path = self.img_paths[ind]
-        label_path = join(self.data_dir, 'labels', basename(img_path))
-        x = Image.open(img_path)
-        y = Image.open(label_path)
+        img_fn = self.imgs[ind]
+        img_id = self.img2id[img_fn]
+        img = Image.open(join(self.img_dir, img_fn))
 
-        x = np.array(x)
-        y = np.array(y)
-        if self.transform is not None:
-            out = self.transform(image=x, mask=y)
-            x = out['image']
-            y = out['mask']
-
-        x = torch.tensor(x).permute(2, 0, 1).float() / 255.0
-        y = torch.tensor(y).long()
-
-        return (x, y)
+        if img_id in self.id2boxes:
+            boxes, labels = self.id2boxes[img_id], self.id2labels[img_id]
+            boxlist = BoxList(boxes, labels=labels)
+        else:
+            boxlist = BoxList(
+                torch.empty((0, 4)), labels=torch.empty((0, )).long())
+        if self.transforms:
+            return self.transforms(img, boxlist)
+        return (img, boxlist)
 
     def __len__(self):
-        return len(self.img_paths)
+        return len(self.imgs)
 
 
 class ObjectDetectionLearner(Learner):
     def build_model(self):
-        model = models.segmentation.segmentation._segm_resnet(
-            'deeplabv3',
-            self.cfg.model.backbone,
-            len(self.cfg.data.class_names),
-            False,
-            pretrained_backbone=True)
+        # TODO we shouldn't need to pass the image size here
+        model = MyFasterRCNN(
+            self.cfg.model.backbone, len(self.cfg.data.class_names),
+            self.cfg.data.img_sz, pretrained=True)
         return model
 
     def get_datasets(self):

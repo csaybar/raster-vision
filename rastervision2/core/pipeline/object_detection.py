@@ -5,102 +5,146 @@ import numpy as np
 
 from rastervision2.core.pipeline.rv_pipeline import RVPipeline
 from rastervision2.core import Box
+from rastervision2.core.data.labels import ObjectDetectionLabels
 
 log = logging.getLogger(__name__)
 
 
-def get_train_windows(scene, class_config, chip_size,
-                      chip_options) -> List[Box]:
-    """Get training windows covering a scene.
+def _make_chip_pos_windows(image_extent, label_store, chip_size):
+    chip_size = chip_size
+    pos_windows = []
+    boxes = label_store.get_labels().get_boxes()
+    done_boxes = set()
 
-    Args:
-        scene: The scene over-which windows are to be generated.
+    # Get a random window around each box. If a box was previously included
+    # in a window, then it is skipped.
+    for box in boxes:
+        if box.tuple_format() not in done_boxes:
+            # If this  object is bigger than the chip,
+            # don't use this box.
+            if chip_size < box.get_width() or chip_size < box.get_height():
+                log.warning('Label is larger than chip size: {} '
+                            'Skipping this label'.format(box.tuple_format()))
+                continue
 
-    Returns:
-        A list of windows, list(Box)
-    """
-    co = chip_options
-    raster_source = scene.raster_source
+            window = box.make_random_square_container(chip_size)
+            pos_windows.append(window)
+
+            # Get boxes that lie completely within window
+            window_boxes = label_store.get_labels(window=window)
+            window_boxes = ObjectDetectionLabels.get_overlapping(
+                window_boxes, window, ioa_thresh=1.0)
+            window_boxes = window_boxes.get_boxes()
+            window_boxes = [box.tuple_format() for box in window_boxes]
+            done_boxes.update(window_boxes)
+
+    return pos_windows
+
+
+def _make_label_pos_windows(image_extent, label_store, label_buffer):
+    pos_windows = []
+    for box in label_store.get_labels().get_boxes():
+        window = box.make_buffer(label_buffer, image_extent)
+        pos_windows.append(window)
+
+    return pos_windows
+
+
+def make_pos_windows(image_extent, label_store, chip_size, window_method,
+                     label_buffer):
+    if window_method == 'label':
+        return _make_label_pos_windows(image_extent, label_store, label_buffer)
+    elif window_method == 'image':
+        return [image_extent.make_copy()]
+    else:
+        return _make_chip_pos_windows(image_extent, label_store, chip_size)
+
+
+def make_neg_windows(raster_source, label_store, chip_size, nb_windows,
+                     max_attempts, filter_windows):
     extent = raster_source.get_extent()
-    label_source = scene.ground_truth_label_source
+    neg_windows = []
+    for _ in range(max_attempts):
+        for _ in range(max_attempts):
+            window = extent.make_random_square(chip_size)
+            if any(filter_windows([window])):
+                break
+        chip = raster_source.get_chip(window)
+        labels = ObjectDetectionLabels.get_overlapping(
+            label_store.get_labels(), window, ioa_thresh=0.2)
+
+        # If no labels and not blank, append the chip
+        if len(labels) == 0 and np.sum(chip.ravel()) > 0:
+            neg_windows.append(window)
+
+        if len(neg_windows) == nb_windows:
+            break
+
+    return list(neg_windows)
+
+def get_train_windows(scene, chip_opts, chip_size):
+    raster_source = scene.raster_source
+    label_store = scene.ground_truth_label_source
 
     def filter_windows(windows):
         if scene.aoi_polygons:
             windows = Box.filter_by_aoi(windows, scene.aoi_polygons)
-
-            filt_windows = []
-            for w in windows:
-                label_arr = label_source.get_labels(w).get_label_arr(w)
-                null_inds = (
-                    label_arr.ravel() == class_config.get_null_class_id())
-                if not np.all(null_inds):
-                    filt_windows.append(w)
-            windows = filt_windows
         return windows
 
-    if co.window_method == 'sliding':
-        stride = co.stride or int(round(chip_size / 2))
-        windows = list(filter_windows((extent.get_windows(chip_size, stride))))
-    elif co.window_method == 'random_sample':
-        target_class_ids = co.target_class_ids or list(
-            range(len(class_config)))
-        windows = []
-        attempts = 0
+    window_method = chip_opts.chip_options.window_method
+    if window_method == 'sliding':
+        stride = chip_size
+        return list(
+            filter_windows((raster_source.get_extent().get_windows(
+                chip_size, stride))))
 
-        while attempts < co.chips_per_scene:
-            window = extent.make_random_square(chip_size)
-            if not filter_windows([window]):
-                continue
+    # Make positive windows which contain labels.
+    pos_windows = filter_windows(
+        make_pos_windows(
+            raster_source.get_extent(), label_store, chip_size,
+            chip_opts.window_method,
+            chip_opts.label_buffer))
+    nb_pos_windows = len(pos_windows)
 
-            attempts += 1
-            if co.negative_survival_prob >= 1.0:
-                windows.append(window)
-            elif attempts == co.chips_per_scene and len(windows) == 0:
-                # Ensure there is at least one window per scene.
-                windows.append(window)
-            else:
-                is_pos = label_source.enough_target_pixels(
-                    window, co.target_count_threshold, target_class_ids)
-                if is_pos or (np.random.rand() < co.negative_survival_prob):
-                    windows.append(window)
+    # Make negative windows which do not contain labels.
+    # Generate randow windows and save the ones that don't contain
+    # any labels. It may take many attempts to generate a single
+    # negative window, and could get into an infinite loop in some cases,
+    # so we cap the number of attempts.
+    if nb_pos_windows:
+        nb_neg_windows = round(
+            chip_opts.neg_ratio * nb_pos_windows)
+    else:
+        nb_neg_windows = 100  # just make some
+    max_attempts = 100 * nb_neg_windows
+    neg_windows = make_neg_windows(raster_source, label_store,
+                                    chip_size, nb_neg_windows,
+                                    max_attempts, filter_windows)
 
-    return windows
-
-
-def fill_no_data(img, label_arr, null_class_id):
-    # If chip has null labels, fill in those pixels with
-    # nodata.
-    null_inds = label_arr.ravel() == null_class_id
-    img_shape = img.shape
-    if np.any(null_inds):
-        img = np.reshape(img, (-1, img_shape[2]))
-        img[null_inds, :] = 0
-        img = np.reshape(img, img_shape)
-    return img
+    return pos_windows + neg_windows
 
 
 class ObjectDetection(RVPipeline):
     def get_train_windows(self, scene):
-        return get_train_windows(scene, self.config.dataset.class_config,
-                                 self.config.train_chip_sz,
-                                 self.config.chip_options)
+        return get_train_windows(
+            scene, self.config.train_chip_sz, self.config.chip_options)
 
     def get_train_labels(self, window, scene):
-        return scene.ground_truth_label_source.get_labels(window=window)
+        window_labels = scene.ground_truth_label_source.get_labels(
+            window=window)
+        return ObjectDetectionLabels.get_overlapping(
+            window_labels,
+            window,
+            ioa_thresh=self.config.chip_options.ioa_thresh,
+            clip=True)
 
-    def process_sample(self, sample):
-        img = sample.chip
-        label_arr = sample.labels.get_label_arr(sample.window)
-        null_class_id = self.config.dataset.class_config.get_null_class_id()
-        sample.chip = fill_no_data(img, label_arr, null_class_id)
-        return sample
+    def get_predict_windows(self, extent):
+        chip_sz = self.config.chip_sz
+        stride = chip_sz // 2
+        return extent.get_windows(chip_sz, stride)
 
-    def post_process_batch(self, windows, chips, labels):
-        # Fill in null class for any NODATA pixels.
-        null_class_id = self.config.dataset.class_config.get_null_class_id()
-        for window, chip in zip(windows, chips):
-            label_arr = labels.get_label_arr(window)
-            label_arr[np.sum(chip, axis=2) == 0] = null_class_id
-            labels.set_label_arr(window, label_arr)
-
-        return labels
+    def post_process_predictions(self, labels, scene):
+        return ObjectDetectionLabels.prune_duplicates(
+            labels,
+            score_thresh=self.config.predict_options.score_thresh,
+            merge_thresh=self.config.predict_options.merge_thresh)
