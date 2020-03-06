@@ -95,12 +95,29 @@ class PyTorchObjectDetection(PyTorchLearnerBackend):
             output_uri, self.pipeline_cfg.dataset.class_config, self.tmp_dir)
 
     def predict(self, chips, windows):
+        """Return predictions for a chip using model.
+
+        Args:
+            chips: [[height, width, channels], ...] numpy array of chips
+            windows: List of boxes that are the windows aligned with the chips.
+
+        Return:
+            Labels object containing predictions
+        """
         if self.learner is None:
             self.load_model()
 
         batch_out = self.learner.numpy_predict(chips, raw_out=False)
-        labels = ObjectDetectionLabels()
-        for out, window in zip(batch_out, windows):
-            labels.set_label_arr(window, out)
+        labels = ObjectDetectionLabels.make_empty()
+        
+        for chip_ind, output in enumerate(batch_out):
+            window = windows[chip_ind]
+            boxlist = output[chip_ind].cpu()
+            boxes = boxlist.boxes.numpy()
+            class_ids = boxlist.get_field('labels').numpy()
+            scores = boxlist.get_field('scores').numpy()
+            boxes = ObjectDetectionLabels.local_to_global(boxes, window)
+            labels += ObjectDetectionLabels(
+                boxes, class_ids, scores=scores)
 
         return labels
