@@ -5,7 +5,7 @@ import numpy as np
 
 from rastervision2.core.pipeline.rv_pipeline import RVPipeline
 from rastervision2.core import Box
-from rastervision2.core.data.labels import ObjectDetectionLabels
+from rastervision2.core.data.label import ObjectDetectionLabels
 
 log = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ def get_train_windows(scene, chip_opts, chip_size):
             windows = Box.filter_by_aoi(windows, scene.aoi_polygons)
         return windows
 
-    window_method = chip_opts.chip_options.window_method
+    window_method = chip_opts.window_method
     if window_method == 'sliding':
         stride = chip_size
         return list(
@@ -127,7 +127,7 @@ def get_train_windows(scene, chip_opts, chip_size):
 class ObjectDetection(RVPipeline):
     def get_train_windows(self, scene):
         return get_train_windows(
-            scene, self.config.train_chip_sz, self.config.chip_options)
+            scene, self.config.chip_options, self.config.train_chip_sz)
 
     def get_train_labels(self, window, scene):
         window_labels = scene.ground_truth_label_source.get_labels(

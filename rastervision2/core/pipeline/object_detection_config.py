@@ -2,7 +2,7 @@ from typing import (List, Optional)
 
 from rastervision2.pipeline.config import register_config, Config
 from rastervision2.core.pipeline import RVPipelineConfig
-from rastervision2.core.data import ObjectDetectionLabelStoreConfig
+from rastervision2.core.data.label_store import ObjectDetectionGeoJSONStoreConfig
 from rastervision2.core.evaluation import ObjectDetectionEvaluatorConfig
 
 window_methods = ['chip']
@@ -32,7 +32,7 @@ class ObjectDetectionConfig(RVPipelineConfig):
         return ObjectDetection(self, tmp_dir)
 
     def get_default_label_store(self, scene):
-        return ObjectDetectionLabelStoreConfig()
+        return ObjectDetectionGeoJSONStoreConfig()
 
     def get_default_evaluator(self):
         return ObjectDetectionEvaluatorConfig()

@@ -2,11 +2,11 @@ from typing import List
 
 from rastervision2.pipeline.config import register_config
 from rastervision2.core.backend import BackendConfig
-from rastervision2.pytorch_learner.semantic_segmentation_config import (
+from rastervision2.pytorch_learner.semantic_segmentation_learner_config import (
     SemanticSegmentationModelConfig, SemanticSegmentationLearnerConfig,
     SemanticSegmentationDataConfig)
-from rastervision2.pytorch_learner.learner_config import (SolverConfig,
-                                                          default_augmentors)
+from rastervision2.pytorch_learner.learner_config import (
+    SolverConfig, default_augmentors)
 from rastervision2.pytorch_backend.pytorch_semantic_segmentation import (
     PyTorchSemanticSegmentation)
 

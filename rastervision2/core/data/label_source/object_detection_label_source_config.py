@@ -10,5 +10,5 @@ class ObjectDetectionLabelSourceConfig(LabelSourceConfig):
     vector_source: VectorSourceConfig
 
     def build(self, class_config, crs_transformer, extent, tmp_dir):
-        vs = self.vector_source.build()
+        vs = self.vector_source.build(class_config, crs_transformer)
         return ObjectDetectionLabelSource(vs, extent)

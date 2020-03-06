@@ -2,7 +2,7 @@ from typing import List
 
 from rastervision2.pipeline.config import register_config
 from rastervision2.core.backend import BackendConfig
-from rastervision2.pytorch_learner.object_detection_config import (
+from rastervision2.pytorch_learner.object_detection_learner_config import (
     ObjectDetectionModelConfig, ObjectDetectionLearnerConfig,
     ObjectDetectionDataConfig)
 from rastervision2.pytorch_learner.learner_config import (SolverConfig,

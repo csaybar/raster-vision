@@ -70,7 +70,7 @@ class RVPipeline(Pipeline):
         dataset = cfg.dataset.get_split_config(split_ind, num_splits)
         if not dataset.train_scenes and not dataset.validation_scenes:
             return
-
+    
         class_cfg = dataset.class_config
         with backend.get_sample_writer() as writer:
 
